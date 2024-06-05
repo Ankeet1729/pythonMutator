@@ -1,0 +1,23 @@
+***************BinOp*****************
+x+y -> y+x
+x*y -> y*x
+
+
+x/y -> x/y*1
+x-y -> x-y*1
+
+*************************************
+
+**************Constant***************
+
+x -> (x*y/y or x+y-y) (chosen randomly)  (randomly chosen y)
+
+*************************************
+
+
+**************UnaryOp****************
+
++x --> (randomly chosen even numbers of (-) and randomly chosen any number of (+) applied in random sequence)x
+-x --> (randomly chosen odd numbers of (-) and randomly chosen any number of (+) applied in random sequence)x
+
+*************************************
