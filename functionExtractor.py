@@ -21,9 +21,9 @@ class FunctionExtractor:
             code = f.read()
         
         tree = ast.parse(code)
-        functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+        self.functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
         
-        return functions
+        return self.functions
     
     def is_integer_function(self, function_node):
         # Check if all arguments are annotated as integers
@@ -32,9 +32,10 @@ class FunctionExtractor:
                 if not isinstance(arg.annotation, ast.Name) or arg.annotation.id != 'int':
                     return False
             else:
+                # TODO: probably don't need to handle it anymore since it seems to have been handled in the returns logic
                 # return False  # TODO: write appropriate logic to handle case when "not arg.annotation"
                 # TODO: wherever in the function you get this variable name, add a node to check the type of the variable using the type() function call. Then unparse that node and check if the output is int. If not int, return False
-                name = arg.arg
+                pass
                 
                 
         # Check if the return type is annotated as integer
@@ -46,9 +47,13 @@ class FunctionExtractor:
             n_args = len(function_node.args.args)
             random_args = [str(random.randint(0, 100)) for _ in range(n_args)]
             f_call = f"{function_node.name}({', '.join(random_args)})"
+            result = None
 
             exec(f_src)                     # Define the function in the current context
-            result = eval(f_call)           # Execute the function call and get the result
+            try:
+                result = eval(f_call)       # Execute the function call and get the result
+            except:
+                return False                # if any error occured during the execution of the function, then it must be because of passing integer arguments to the function. Here we are assuming that the projects from which we are deriving our functions for the database, has syntactically correct functions.
 
             if(isinstance(result, int)):
                 return True
