@@ -1,6 +1,7 @@
 import os
 import argparse
 import ast
+import random
 
 class FunctionExtractor:
     def extract_python_files(self, folder_path):
@@ -31,14 +32,28 @@ class FunctionExtractor:
                 if not isinstance(arg.annotation, ast.Name) or arg.annotation.id != 'int':
                     return False
             else:
-                return False  # TODO: write appropriate logic to handle case when "not arg.annotation"
+                # return False  # TODO: write appropriate logic to handle case when "not arg.annotation"
+                # TODO: wherever in the function you get this variable name, add a node to check the type of the variable using the type() function call. Then unparse that node and check if the output is int. If not int, return False
+                name = arg.arg
+                
                 
         # Check if the return type is annotated as integer
         if function_node.returns:
             if not isinstance(function_node.returns, ast.Name) or function_node.returns.id != 'int':
                 return False
         else:
-            return False  # TODO: write appropriate logic to handle case when "not function_node.returns"
+            f_src = (ast.unparse(function_node))
+            n_args = len(function_node.args.args)
+            random_args = [str(random.randint(0, 100)) for _ in range(n_args)]
+            f_call = f"{function_node.name}({', '.join(random_args)})"
+
+            exec(f_src)                     # Define the function in the current context
+            result = eval(f_call)           # Execute the function call and get the result
+
+            if(isinstance(result, int)):
+                return True
+            else:
+                return False
             
         
         return True
@@ -59,6 +74,7 @@ if __name__ == "__main__":
         if functions:
             for function in functions:
                 # print(ast.dump(function, indent=4))
+                # TODO: print number of arguments in the function
                 if extractor.is_integer_function(function):
                     function_database.append(function)
 
