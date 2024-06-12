@@ -190,8 +190,8 @@ if __name__ == "__main__":
             if flag:
                 function_database.append(function)
 
-    # for function in function_database:
-        # print(ast.unparse(function))
+    for function in function_database:
+        print((function).name)
 
 
 
