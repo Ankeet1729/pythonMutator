@@ -3,115 +3,157 @@ import argparse
 import ast
 import random
 import builtins
+import datetime
+import collections
+import types
+import re
+import pathlib
+import decimal
+import fractions
+import functools
 
-all_f_code = ""
+sample_values = {
+    'int': 42,
+    'float': 3.14,
+    'str': 'example string',
+    'bool': True,
+    'NoneType': None,
+    'list': [1, 2, 3, 'a', 'b', 'c'],
+    'dict': {'key1': 'value1', 'key2': 42},
+    'set': {1, 2, 3, 'a', 'b', 'c'},
+    'tuple': (1, 2, 3, 'a', 'b', 'c'),
+    'bytes': b'example bytes',
+    'bytearray': bytearray(b'example bytearray'),
+    'range': range(5),
+    'complex': 1+2j,
+    'frozenset': frozenset([1, 2, 3, 'a', 'b', 'c']),
+    'datetime': datetime.datetime.now(),
+    'date': datetime.date.today(),
+    'time': datetime.datetime.now().time(),
+    'timedelta': datetime.timedelta(days=1),
+    'memoryview': memoryview(b'example memoryview'),
+    'deque': collections.deque([1, 2, 3, 'a', 'b', 'c']),
+    'namedtuple': collections.namedtuple('Point', ['x', 'y'])(1, 2),
+    'defaultdict': collections.defaultdict(int, {'key1': 1, 'key2': 2}),
+    'Counter': collections.Counter(['a', 'b', 'c', 'a', 'b', 'b']),
+    'OrderedDict': collections.OrderedDict([('key1', 'value1'), ('key2', 'value2')]),
+    'types.FunctionType': (lambda x: x + 1),
+    'types.LambdaType': (lambda x: x + 1),
+    'types.BuiltinFunctionType': abs,
+    'pattern': re.compile(r'\d+'),
+    'match': re.match(r'\d+', '123abc'),
+    'Path': pathlib.Path('/usr/bin'),
+    'PosixPath': pathlib.PosixPath('/usr/bin'),
+    'PurePath': pathlib.PurePath('/usr/bin'),
+    'PurePosixPath': pathlib.PurePosixPath('/usr/bin'),
+    'decimal.Decimal': decimal.Decimal('3.14'),
+    'fractions.Fraction': fractions.Fraction(3, 4),
+    'functools.partial': functools.partial(int, base=2),
+    'map': map(str, [1, 2, 3]),
+    'filter': filter(lambda x: x > 1, [0, 1, 2, 3]),
+    'zip': zip([1, 2, 3], ['a', 'b', 'c']),
+    'reversed': reversed([1, 2, 3]),
+    'enumerate': enumerate(['a', 'b', 'c']),
+    'generator': (x * x for x in range(10)),
+}
 
 class FunctionCallChecker(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, function_return_types):
         self.has_function_call = False
         self.calls = []
         self.imports = set()
-
-    # def visit_Import(self, node):
-    #     for alias in node.names:
-    #         self.imports.add(alias.name)
-    #     self.generic_visit(node)
-
-    # def visit_ImportFrom(self, node):
-    #     module = node.module
-    #     for alias in node.names:
-    #         self.imports.add(f"{module}.{alias.name}")
-    #     self.generic_visit(node)
+        self.function_return_types = function_return_types
 
     def visit_Call(self, node):
         self.has_function_call = True
+        func_name = None
         if isinstance(node.func, ast.Name):
-            self.calls.append(node.func.id)
+            func_name = node.func.id
         elif isinstance(node.func, ast.Attribute):
             value = node.func.value
             if isinstance(value, ast.Name):
-                full_call = f"{value.id}.{node.func.attr}"
-                self.calls.append(full_call)
+                func_name = f"{value.id}.{node.func.attr}"
             else:
-                self.calls.append(node.func.attr)
+                func_name = node.func.attr
+        
+        return_type = self.function_return_types.get(func_name, "Unknown")
+        self.calls.append((func_name, return_type))
         self.generic_visit(node)
-
 
 class FunctionExtractor:
     def extract_python_files(self, folder_path):
         all_files = []
-
         for root, dirs, files in os.walk(folder_path):
             for file in files:
-                if not (file.endswith(".py")):
-                    continue
-                file_path = os.path.join(root, file)
-                all_files.append(file_path)
-                
+                if file.endswith(".py"):
+                    file_path = os.path.join(root, file)
+                    all_files.append(file_path)
         return all_files
     
-    def extract_function_declarations_and_import_statements(self, file_path):
+    def extract_function_declarations(self, file_path):
         with open(file_path, 'r') as f:
             code = f.read()
-        
         tree = ast.parse(code)
         self.functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-        self.imports = [node.module if isinstance(node, ast.ImportFrom) else alias.name for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom)) for alias in node.names]
-        self.import_nodes = [node for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
-
-
-        
-        return self.functions, self.imports, self.import_nodes
+        return self.functions
     
-    def has_function_call(self, function_node):
-        checker = FunctionCallChecker()
+    def has_function_call(self, function_node, function_return_types):
+        checker = FunctionCallChecker(function_return_types)
         checker.visit(function_node)
         return checker.has_function_call
     
-    def return_function_calls(self, function_node):
-        checker = FunctionCallChecker()
+    def return_function_calls(self, function_node, function_return_types):
+        checker = FunctionCallChecker(function_return_types)
         checker.visit(function_node)
-        
         return checker.calls
     
     def is_integer_function(self, function_node):
-        global all_f_code
-        # Check if all arguments are annotated as integers
+        flag = False
+        for arg in function_node.args.args:
+            if not arg.annotation:
+                return False
+        if not function_node.returns:
+            return False
+
         for arg in function_node.args.args:
             if arg.annotation:
-                if not isinstance(arg.annotation, ast.Name) or arg.annotation.id != 'int':
-                    return False
-            else:
-                # TODO: probably don't need to handle it anymore since it seems to have been handled in the returns logic
-                # return False  # TODO: write appropriate logic to handle case when "not arg.annotation"
-                # TODO: wherever in the function you get this variable name, add a node to check the type of the variable using the type() function call. Then unparse that node and check if the output is int. If not int, return False
-                pass
-                
-                
-        # Check if the return type is annotated as integer
+                if isinstance(arg.annotation, ast.Name) and arg.annotation.id == 'int':
+                    flag = True
+
         if function_node.returns:
-            if not isinstance(function_node.returns, ast.Name) or function_node.returns.id != 'int':
-                return False
-        else:
-            f_src = (ast.unparse(function_node))
-            n_args = len(function_node.args.args)
-            random_args = [str(random.randint(0, 100)) for _ in range(n_args)]
-            f_call = f"{function_node.name}({', '.join(random_args)})"
-            result = None
+            if isinstance(function_node.returns, ast.Name) and function_node.returns.id == 'int':
+                flag = True
+        return flag
 
-            try:
-                result = eval(f_call)       # Execute the function call and get the result
-            except:
-                return False                # if any error occured during the execution of the function, then it must be because of passing integer arguments to the function. Here we are assuming that the projects from which we are deriving our functions for the database, has syntactically correct functions.
+class CallReplacer(ast.NodeTransformer):
+    def __init__(self, function_return_types):
+        self.function_return_types = function_return_types
 
-            if(isinstance(result, int)):
-                return True
+    def visit_Call(self, node):
+        func_name = None
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            value = node.func.value
+            if isinstance(value, ast.Name):
+                func_name = f"{value.id}.{node.func.attr}"
             else:
-                return False
-            
+                func_name = node.func.attr
         
-        return True
+        return_type = self.function_return_types.get(func_name, "Unknown")
+        if return_type != "Unknown" and return_type in sample_values:
+            value_to_replace = sample_values[return_type]
+            return ast.copy_location(ast.Constant(value_to_replace), node)
+        return self.generic_visit(node)
 
+def extract_function_return_types(functions):
+    return_types = {}
+    for function in functions:
+        if function.returns and isinstance(function.returns, ast.Name):
+            return_types[function.name] = function.returns.id
+        else:
+            return_types[function.name] = "Unknown"
+    return return_types
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract python files")
@@ -119,46 +161,39 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     extractor = FunctionExtractor()
-
-    files = extractor.extract_python_files(args.path)  # contains the path to all python files within a folder
+    files = extractor.extract_python_files(args.path)
     function_database = []
 
+    all_functions = []
     for file in files:
-        functions, imports, import_nodes = extractor.extract_function_declarations_and_import_statements(file)
-        # all_import_code = "\n".join(ast.unparse(node) for node in import_nodes)
-        # all_f_code = "\n".join(ast.unparse(function) for function in functions)
-        # all_code = all_import_code + "\n" + all_f_code
-        exec(all_f_code)            # Define the function in the current context
+        functions = extractor.extract_function_declarations(file)
+        all_functions.extend(functions)
+    
+    function_return_types = extract_function_return_types(all_functions)
 
-        if functions:
-            for function in functions:
-                # print(function.name)
-                # print(ast.dump(function, indent=4))
-                if extractor.is_integer_function(function):
-                    if extractor.has_function_call(function):
-                        calls = extractor.return_function_calls(function)
-                        builtins_set = set(dir(builtins))
-                        for call in calls:
-                            # print(calls)
-                            # print(imports)
-                            if (call in builtins_set):
-                                # print(f"Function call within scope: {call}")
-                                pass
-                
-                    function_database.append(function)
+    for function in all_functions:
+        flag = True
+        if extractor.is_integer_function(function):
+            if extractor.has_function_call(function, function_return_types):
+                calls = extractor.return_function_calls(function, function_return_types)
+                builtins_set = set(dir(builtins))
+                for call, return_type in calls:
+                    if call not in builtins_set:
+                        value_to_be_replaced = None
+                        if return_type != "Unknown":
+                            value_to_be_replaced = sample_values[return_type]
+                            # Replace the function call with the sample value
+                            replacer = CallReplacer(function_return_types)
+                            function = replacer.visit(function)
+                        else:
+                            flag = False
+            if flag:
+                function_database.append(function)
 
-    for function in function_database:
-        print(function.name)
-            
-
-
+    # for function in function_database:
+        # print(ast.unparse(function))
 
 
-'''
-bare functions, class methods -> extract out both.
-for functions it should be like below
 
-def <function-name>(<parameter>*): | def <function-name>(<parameter>*) -> <return-type>: (if the return type is present we can directly check from here if it is an integer return type)
 
-Will also have to check whether it is a class method or just a bare function. If it is bare function, we can add the function to our database directly. If class method, then, for now I am just rejecting it as right now I cannot think of anything that can convert (any) class method into a function
-'''
+# TODO: check the Django error
