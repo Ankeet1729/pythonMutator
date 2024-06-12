@@ -1,3 +1,5 @@
+import mysql.connector
+
 import os
 import argparse
 import ast
@@ -57,6 +59,66 @@ sample_values = {
     'generator': (x * x for x in range(10)),
 }
 
+def create_database_and_table():
+    # Connect to MySQL
+    connection = mysql.connector.connect(
+        host='localhost',
+        user='root',   # replace with your MySQL username
+        password='root'  # replace with your MySQL password
+    )
+    
+    cursor = connection.cursor()
+
+    # Create database
+    cursor.execute("CREATE DATABASE IF NOT EXISTS function_database")
+    
+    # Use the created database
+    cursor.execute("USE function_database")
+    
+    # Create table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS functions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        return_type VARCHAR(255) NOT NULL,
+        has_function_call BOOLEAN NOT NULL,
+        src TEXT NOT NULL
+    )
+    """)
+    
+    # Commit changes
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+
+# Run the function to create the database and table
+create_database_and_table()
+
+
+def insert_function_data(src, function_name, file_name, return_type, has_function_call):
+    connection = mysql.connector.connect(
+        host='localhost',
+        user='root',
+        password='root',
+        database='function_database'
+    )
+    
+    cursor = connection.cursor()
+    
+    cursor.execute("""
+    INSERT INTO functions (src, name, file_name, return_type, has_function_call)
+    VALUES (%s, %s, %s, %s, %s)
+    """, (src, function_name, file_name, return_type, has_function_call))
+    
+    # Commit changes
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+
+
 class FunctionCallChecker(ast.NodeVisitor):
     def __init__(self, function_return_types):
         self.has_function_call = False
@@ -81,6 +143,9 @@ class FunctionCallChecker(ast.NodeVisitor):
         self.generic_visit(node)
 
 class FunctionExtractor:
+    def __init__(self, exclude_integer_parameters=False):
+        self.exclude_integer_parameters = exclude_integer_parameters
+
     def extract_python_files(self, folder_path):            # extracts python files from directory provided as argument
         all_files = []
         for root, dirs, files in os.walk(folder_path):
@@ -113,16 +178,19 @@ class FunctionExtractor:
     
     def is_integer_function(self, function_node):           # checks if the function has integer arguments and integer return type -> right now works accurately for annotated functions only
         flag = False
-        for arg in function_node.args.args:
-            if not arg.annotation:
-                return False
+        if not self.exclude_integer_parameters:
+            for arg in function_node.args.args:
+                if not arg.annotation:
+                    return False
+                
         if not function_node.returns:
             return False
-
-        for arg in function_node.args.args:
-            if arg.annotation:
-                if isinstance(arg.annotation, ast.Name) and arg.annotation.id == 'int':
-                    flag = True
+        
+        if not self.exclude_integer_parameters:
+            for arg in function_node.args.args:
+                if arg.annotation:
+                    if isinstance(arg.annotation, ast.Name) and arg.annotation.id == 'int':
+                        flag = True
 
         if function_node.returns:
             if isinstance(function_node.returns, ast.Name) and function_node.returns.id == 'int':
@@ -162,9 +230,10 @@ def extract_function_return_types(functions):                # returns the retur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract python files")
     parser.add_argument("-p", "--path", help="Path to the folder to read files from", required=True)
+    parser.add_argument('-e', '--exclude-integer-parameters', action='store_true', help='Exclude integer parameters while extracting functions')
     args = parser.parse_args()
 
-    extractor = FunctionExtractor()
+    extractor = FunctionExtractor(exclude_integer_parameters=args.exclude_integer_parameters)
     files = extractor.extract_python_files(args.path)
     function_database = []
 
@@ -198,7 +267,11 @@ if __name__ == "__main__":
                 function_database.append(function)
 
     for function in function_database:
-        print((function).name)
-
-
-# TODO: create an actual database
+        function_node = function
+        src = ast.unparse(function_node)
+        function_name = function.name
+        file_name = os.path.basename(file)  # Correctly retrieve the file name
+        return_type = function_return_types.get(function.name, "Unknown")
+        has_function_call = extractor.has_function_call(function, function_return_types)
+        
+        insert_function_data(src, function_name, file_name, return_type, has_function_call)
