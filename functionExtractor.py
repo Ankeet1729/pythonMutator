@@ -64,7 +64,7 @@ class FunctionCallChecker(ast.NodeVisitor):
         self.imports = set()
         self.function_return_types = function_return_types
 
-    def visit_Call(self, node):
+    def visit_Call(self, node):                             # stores the function name and the return type for each Call Node visited
         self.has_function_call = True
         func_name = None
         if isinstance(node.func, ast.Name):
@@ -81,7 +81,7 @@ class FunctionCallChecker(ast.NodeVisitor):
         self.generic_visit(node)
 
 class FunctionExtractor:
-    def extract_python_files(self, folder_path):
+    def extract_python_files(self, folder_path):            # extracts python files from directory provided as argument
         all_files = []
         for root, dirs, files in os.walk(folder_path):
             for file in files:
@@ -90,24 +90,28 @@ class FunctionExtractor:
                     all_files.append(file_path)
         return all_files
     
-    def extract_function_declarations(self, file_path):
+    def extract_function_declarations(self, file_path):     # extracts the functions found from the python file and returns their ast node    
         with open(file_path, 'r') as f:
             code = f.read()
-        tree = ast.parse(code)
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            print(f"Syntax error in file {file_path}: {e}")
+            return []
         self.functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
         return self.functions
     
-    def has_function_call(self, function_node, function_return_types):
+    def has_function_call(self, function_node, function_return_types):      # checks if the function has another function call within it
         checker = FunctionCallChecker(function_return_types)
         checker.visit(function_node)
         return checker.has_function_call
     
-    def return_function_calls(self, function_node, function_return_types):
+    def return_function_calls(self, function_node, function_return_types):  # returns the function calls within a function
         checker = FunctionCallChecker(function_return_types)
         checker.visit(function_node)
         return checker.calls
     
-    def is_integer_function(self, function_node):
+    def is_integer_function(self, function_node):           # checks if the function has integer arguments and integer return type -> right now works accurately for annotated functions only
         flag = False
         for arg in function_node.args.args:
             if not arg.annotation:
@@ -129,7 +133,7 @@ class CallReplacer(ast.NodeTransformer):
     def __init__(self, function_return_types):
         self.function_return_types = function_return_types
 
-    def visit_Call(self, node):
+    def visit_Call(self, node):                              # visits a Call node and changes the function call itself with a value from the dictionary mapping in sample_values
         func_name = None
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
@@ -146,7 +150,7 @@ class CallReplacer(ast.NodeTransformer):
             return ast.copy_location(ast.Constant(value_to_replace), node)
         return self.generic_visit(node)
 
-def extract_function_return_types(functions):
+def extract_function_return_types(functions):                # returns the return type of the function node passed as an argument. If there is no annotation, then "Unknown" is returned
     return_types = {}
     for function in functions:
         if function.returns and isinstance(function.returns, ast.Name):
@@ -173,19 +177,22 @@ if __name__ == "__main__":
 
     for function in all_functions:
         flag = True
-        if extractor.is_integer_function(function):
-            if extractor.has_function_call(function, function_return_types):
+        if extractor.is_integer_function(function):                             # if function has integer return types and parameters
+            if extractor.has_function_call(function, function_return_types):    # if function has function call within it
                 calls = extractor.return_function_calls(function, function_return_types)
                 builtins_set = set(dir(builtins))
                 for call, return_type in calls:
-                    if call not in builtins_set:
+                    if call not in builtins_set:                                # if the current call in question is not a builtin
                         value_to_be_replaced = None
-                        if return_type != "Unknown":
-                            value_to_be_replaced = sample_values[return_type]
+                        if return_type != "Unknown":                            # if return type is not unknown then replace the call (if the datatype is in the sample_values dict)
+                            try:
+                                value_to_be_replaced = sample_values[return_type]
+                            except:
+                                flag = False
                             # Replace the function call with the sample value
                             replacer = CallReplacer(function_return_types)
                             function = replacer.visit(function)
-                        else:
+                        else:                                                   # if not then this function is not included in the database
                             flag = False
             if flag:
                 function_database.append(function)
@@ -194,6 +201,4 @@ if __name__ == "__main__":
         print((function).name)
 
 
-
-
-# TODO: check the Django error
+# TODO: create an actual database
